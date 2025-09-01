@@ -1,0 +1,23 @@
+[project]
+name = "poc-mcp"
+version = "0.1.0"
+description = "ListenLoom MCP Server for meeting transcript semantic search"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pymongo",
+    "langchain",
+    "langchain-google-genai", 
+    "langchain-community",
+    "python-dotenv",
+    "beanie",
+    "pydantic",
+    "google-generativeai",
+    "mcp[cli]==0.1.0",
+    "streamlit",
+    "requests",
+    "motor"
+]
+
+[project.scripts]
+mcp-server = "main:server"
