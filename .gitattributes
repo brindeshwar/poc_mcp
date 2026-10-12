@@ -1,0 +1,6 @@
+# Normalize line endings; keep LF in the repo even when edited on Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+uv.lock linguist-generated=true
