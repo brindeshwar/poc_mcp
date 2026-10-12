@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: repos
+    attributes:
+      label: Which components would change?
+      multiple: true
+      options:
+        - Meeting hub (poc_mcp)
+        - Slack bot (poc_slack)
+        - Jira Task Service (poc_jira)
+        - Integration contract
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
