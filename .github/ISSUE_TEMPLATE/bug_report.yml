@@ -1,0 +1,41 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the exact error message or tool error text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the service with …
+        2. Call …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: 0.2.0 or a commit SHA
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, how it was run (uv / Docker), relevant settings. **Never paste secrets.**
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      render: text
