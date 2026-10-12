@@ -1,106 +1,115 @@
-import streamlit as st
-import json
-import os
+"""Streamlit UI for the meeting hub. It is a real MCP client: every action goes through the
+server's MCP tools over HTTP, exactly like the Slack bot does.
+
+Run:  uv run streamlit run streamlit_app.py
+"""
+
 import asyncio
-import sys
-from dotenv import load_dotenv
+import os
+from datetime import date
+from typing import Any
 
-# Load environment variables
-load_dotenv()
+import streamlit as st
 
-# Add the project root to Python path
-sys.path.append(os.path.dirname(__file__))
+from meeting_hub.client import HubToolError, call_tool
 
-# Import MCP components directly - USE YOUR SYNC WRAPPER
-from MCP.tools.meeting_tools import get_meeting_by_semantic_search_sync
-from database.connection import connect_db
-from database.models.meeting_chunk_model import MeetingChunk
+SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8001/mcp")
 
-st.set_page_config(page_title="ListenLoom MCP Chat POC", layout="wide")
+st.set_page_config(page_title="ListenLoom Meeting Hub", page_icon="🗣️", layout="wide")
 
-st.title("🗣️ ListenLoom MCP Chat POC (Historical Meetings)")
-st.markdown("Ask questions about your recorded meetings using natural language. This app uses the ListenLoom MCP Server functions directly.")
 
-# Initialize database connection (cached to avoid reconnecting)
-@st.cache_resource
-def init_database():
-    """Initialize database connection synchronously"""
+def tool(name: str, **arguments: Any) -> Any:
+    """Call an MCP tool; show a readable error and stop the script run if it fails."""
     try:
-        # Create a dedicated event loop for database initialization
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(connect_db(document_models=[MeetingChunk]))
-            return True
-        finally:
-            # Don't close the loop here as it might be needed later
-            pass
-    except Exception as e:
-        st.error(f"Database connection failed: {e}")
-        return False
-
-# Initialize DB
-if not init_database():
+        return asyncio.run(call_tool(SERVER_URL, name, arguments))
+    except HubToolError as exc:
+        st.error(str(exc))
+    except Exception as exc:  # connection refused, timeouts, ...
+        st.error(f"Could not reach the MCP server at {SERVER_URL}: {exc}")
     st.stop()
 
-# --- Chat History Management ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
-# Display chat messages from history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if "retrieved_chunks" in message and message["retrieved_chunks"]:
-            with st.expander("Retrieved Context"):
-                for chunk in message["retrieved_chunks"]:
-                    st.write(f"**Meeting ID:** {chunk.get('meeting_id', 'N/A')}")
-                    st.write(f"**Speaker:** {chunk.get('speaker', 'N/A')}")
-                    st.markdown(f"**Content:** {chunk.get('text_content', 'N/A')}")
-                    st.markdown(f"**Score:** {chunk.get('score', 'N/A'):.4f}")
-                    st.markdown("---")
+def render_sources(sources: list[dict[str, Any]]) -> None:
+    if not sources:
+        return
+    with st.expander(f"Sources ({len(sources)})"):
+        for hit in sources:
+            st.markdown(f"**{hit['meeting_title']}** · score {hit['score']:.3f}")
+            st.text(hit["text"])
 
-# --- User Input and MCP Tool Call ---
-if prompt := st.chat_input("Ask a question about your meetings..."):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                # Call your sync wrapper function (preserves your MongoDBService architecture!)
-                result = get_meeting_by_semantic_search_sync(query_text=prompt, limit=5)
-                
-                if result and result.answer:
-                    answer = result.answer
-                    retrieved_chunks = [chunk.model_dump() for chunk in result.retrieved_chunks]
+def render_jira_results(result: dict[str, Any]) -> None:
+    st.info(result["message"])
+    for row in result["results"]:
+        link = f" — [{row['jira_key']}]({row['jira_url']})" if row.get("jira_url") else ""
+        st.markdown(f"- `{row['status']}` {row['summary']}{link}")
 
-                    st.markdown(answer)
-                    if retrieved_chunks:
-                        with st.expander("Retrieved Context"):
-                            for chunk in retrieved_chunks:
-                                st.write(f"**Meeting ID:** {chunk.get('meeting_id', 'N/A')}")
-                                st.write(f"**Speaker:** {chunk.get('speaker', 'N/A')}")
-                                st.markdown(f"**Content:** {chunk.get('text_content', 'N/A')}")
-                                st.markdown(f"**Score:** {chunk.get('score', 'N/A'):.4f}")
-                                st.markdown("---")
 
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": answer,
-                        "retrieved_chunks": retrieved_chunks
-                    })
-                else:
-                    error_msg = "Failed to get results from the search tool."
-                    st.error(error_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+st.title("🗣️ ListenLoom Meeting Hub")
+st.caption(f"Connected to MCP server: `{SERVER_URL}`")
 
-            except Exception as e:
-                error_msg = f"An error occurred: {str(e)}"
-                st.error(error_msg)
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
-                # Optional: Show detailed error for debugging
-                with st.expander("Debug Info"):
-                    st.exception(e)
+ask_tab, meetings_tab, add_tab = st.tabs(["Ask", "Meetings", "Add meeting"])
+
+with ask_tab:
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            render_sources(message.get("sources", []))
+
+    if question := st.chat_input("Ask about your meetings…"):
+        st.session_state.messages.append({"role": "user", "content": question})
+        with st.chat_message("user"):
+            st.markdown(question)
+        with st.chat_message("assistant"), st.spinner("Searching meetings…"):
+            answer = tool("ask_meetings", question=question, limit=5)
+            st.markdown(answer["answer"])
+            render_sources(answer["sources"])
+        st.session_state.messages.append(
+            {"role": "assistant", "content": answer["answer"], "sources": answer["sources"]}
+        )
+
+with meetings_tab:
+    meetings = tool("list_meetings", limit=20)
+    if not meetings:
+        st.info("No meetings yet. Add one in the **Add meeting** tab or run the seed script.")
+    for meeting in meetings:
+        held = meeting["held_at"][:10]
+        with st.expander(f"{held} · {meeting['title']}"):
+            st.markdown(f"**Summary**\n\n{meeting['summary']}")
+            if meeting["action_items"]:
+                st.markdown("**Action items**")
+                for item in meeting["action_items"]:
+                    owner = item.get("assignee") or "unassigned"
+                    due = f", due {item['due_date']}" if item.get("due_date") else ""
+                    st.markdown(f"- {item['summary']} _({owner}{due})_")
+            if meeting["user_stories"]:
+                st.markdown("**User stories**")
+                for story in meeting["user_stories"]:
+                    st.markdown(f"- {story}")
+
+            preview_col, send_col = st.columns(2)
+            mid = meeting["meeting_id"]
+            if preview_col.button("Preview Jira tasks", key=f"preview-{mid}"):
+                render_jira_results(tool("create_jira_tasks", meeting_id=mid, dry_run=True))
+            if send_col.button("Create Jira tasks", key=f"send-{mid}", type="primary"):
+                render_jira_results(tool("create_jira_tasks", meeting_id=mid))
+
+with add_tab, st.form("add-meeting", clear_on_submit=True):
+    title = st.text_input("Title")
+    held_on = st.date_input("Date", value=date.today())
+    transcript = st.text_area(
+        "Transcript", height=300, placeholder="Alice: Let's start…\nBob: I'll take that."
+    )
+    if st.form_submit_button("Save meeting", type="primary"):
+        with st.spinner("Summarising and indexing…"):
+            meeting = tool(
+                "ingest_meeting",
+                title=title,
+                transcript=transcript,
+                held_at=held_on.isoformat(),
+            )
+        st.success(
+            f"Saved '{meeting['title']}' with {len(meeting['action_items'])} action item(s)."
+        )
