@@ -1,0 +1,48 @@
+# Whole ListenLoom stack. Expects the three repos as sibling folders:
+#   internship/poc_mcp   internship/poc_slack   internship/poc_jira/jira_task_creator
+# Each service reads its own repo's .env; the overrides below wire them together.
+#
+#   docker compose -f deploy/docker-compose.yml up --build
+#   docker compose -f deploy/docker-compose.yml up --build hub streamlit   # without Slack/Jira
+name: listenloom
+
+services:
+  jira:
+    build: ../../poc_jira/jira_task_creator
+    env_file: ../../poc_jira/jira_task_creator/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+    ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 5
+
+  hub:
+    build: ..
+    env_file: ../.env
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8001"
+      JIRA_SERVICE_URL: http://jira:8000
+    ports: ["127.0.0.1:8001:8001"]
+    depends_on:
+      jira:
+        condition: service_healthy
+
+  streamlit:
+    build: ..
+    command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    environment:
+      MCP_SERVER_URL: http://hub:8001/mcp
+    ports: ["127.0.0.1:8501:8501"]
+    depends_on: [hub]
+
+  slack:
+    build: ../../poc_slack
+    env_file: ../../poc_slack/.env
+    environment:
+      MCP_SERVER_URL: http://hub:8001/mcp
+    depends_on: [hub]
+    profiles: [slack]   # opt in: docker compose --profile slack up
