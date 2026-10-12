@@ -13,11 +13,11 @@
 | Slack bot ↔ hub MCP connection | ✅ verified live | 2026-10-13 |
 | Gemini (ingest / ask) live | ⛔ not verified: `GOOGLE_API_KEY` in local `.env` is invalid | 2026-10-13 |
 | MongoDB Atlas live | ⛔ not verified: needs new vector index + re-seed | 2026-10-13 |
-| Docker image | ⚠️ not built locally (Docker daemon not running); `deploy/docker-compose.yml` config validates; CI `docker` job builds it | 2026-10-13 |
+| Docker image | ✅ builds in CI (`Docker build` job, required check) | 2026-10-13 |
 
 ## Current version
 
-`0.2.0` (unreleased; on branch `refactor/v2-connected-system`). See `CHANGELOG.md`.
+`0.2.0`, released 2026-10-13 (tag `v0.2.0`, GitHub release). See `CHANGELOG.md`.
 
 ## Known issues / blockers
 
@@ -49,8 +49,22 @@
 | 2026-10-13 | `gemini-embedding-001` at 768 dims | keeps v1's index dimension; `embedding-001` is retired | 3072 dims (bigger index, little gain here) |
 | 2026-10-13 | No silent fallbacks; errors become MCP tool errors | v1's keyword fallback hid broken config | |
 | 2026-10-13 | `InMemoryStore` as a real backend (`STORE_BACKEND=memory`) | demo without Atlas; reference implementation for tests | test-only fake |
+| 2026-10-13 | Protect `main`: PR + 5 required checks, linear history, rebase-only merges, 0 approvals | keeps `main` always green; linear history keeps the Conventional Commits readable; solo maintainer can't self-approve | squash merges (loses commit granularity); required approvals (blocks a solo maintainer) |
 
 ## Handoff log
+
+### 2026-10-13: Claude (Opus 5.5) · v0.2.0 released, branch protection
+**Changed:** merged the v2 PR (rebase), tagged `v0.1.0` (original POC) and `v0.2.0`, and published the
+GitHub release. Protected `main`: PR required, 5 required checks (lint, tests 3.12/3.13, secret scan,
+Docker build) that must be up to date, linear history, conversation resolution, no force-push or
+deletion, enforced for admins. 0 approvals required (solo maintainer; GitHub forbids self-approval).
+Rebase merge is the only merge method; merged branches are auto-deleted.
+
+**Verified:** CI green on the PR and on `main` after merge; protection settings read back from the
+GitHub API.
+
+**Next agent:** unchanged. Live verification is blocked on a valid Gemini key (and Jira site / Slack
+token rotation; see Known issues). All changes now go through a PR.
 
 ### 2026-10-13: Claude (Opus 5.5) · v2 rebuild + project infrastructure
 **Changed**

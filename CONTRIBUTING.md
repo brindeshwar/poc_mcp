@@ -26,7 +26,9 @@ uv run pre-commit install    # ruff, gitleaks, lockfile checks on every commit
    `docs: explain Atlas index setup`. Mark breaking changes with `!` and a `BREAKING CHANGE:` footer.
 5. Add a line under `## [Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md) for anything user-visible.
 6. Update `docs/STATUS.md` (handoff log; also backlog and decision log if relevant).
-7. Open a PR and fill in the template. CI must be green before merging. Squash-merge is preferred.
+7. Open a PR and fill in the template. `main` is protected: the PR needs all 5 CI checks green and
+   up to date with `main`, and resolved conversations. Merge with **Rebase and merge** (the only method
+   enabled), which keeps history linear and the individual Conventional Commits intact.
 
 ## Changes that affect other repos
 
