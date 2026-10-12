@@ -5,7 +5,7 @@ description = "MCP server that stores meeting transcripts, answers questions abo
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp[cli]>=1.12,<2",
+    "mcp[cli]>=1.12,<3",
     "google-genai>=1.30,<2",
     "pymongo>=4.13,<5",
     "pydantic>=2.11,<3",
