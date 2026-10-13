@@ -3,7 +3,7 @@
 This document is the **single source of truth** for how the three repos talk to each other. It lives
 in the hub because the hub sits in the middle. The other repos link here instead of copying it.
 
-Contract version: **0.2** (matches hub `0.2.x`). Breaking changes bump this and must be listed in
+Contract version: **0.2** (unchanged in hub `0.3.x`: v0.3 only adds tool annotations, which are metadata). Breaking changes bump this and must be listed in
 every affected repo's `CHANGELOG.md`.
 
 ## Topology and defaults
@@ -74,18 +74,22 @@ Other Jira service endpoints (not used by the hub): `GET /health`,
 ## Clients → hub: MCP tools
 
 Transport: MCP Streamable HTTP at `MCP_SERVER_URL`. Structured results: object returns arrive as the
-object; list returns arrive wrapped as `{"result": [...]}`. Errors arrive as `isError=true` with a
-readable text message.
+object; list returns arrive wrapped as `{"result": [...]}`. Errors arrive as `is_error=true` (wire: `isError`)
+with a readable text message.
 
-| Tool | Arguments | Returns |
-|---|---|---|
-| `ingest_meeting` | `title: str`, `transcript: str`, `held_at?: ISO str` | `MeetingRecord` (no transcript) |
-| `list_meetings` | `limit=10` (1–20) | `MeetingRecord[]` newest first |
-| `get_meeting` | `meeting_id: str`, `include_transcript=false` | `MeetingRecord` |
-| `get_latest_meeting` | (none) | `MeetingRecord` (no transcript) |
-| `search_meetings` | `query: str`, `limit=5`, `meeting_id?` | `SearchHit[]` |
-| `ask_meetings` | `question: str`, `limit=5`, `meeting_id?` | `Answer` |
-| `create_jira_tasks` | `meeting_id?` (default latest), `dry_run=false` | `JiraSyncResult` |
+| Tool | Arguments | Returns | Annotations |
+|---|---|---|---|
+| `ingest_meeting` | `title: str`, `transcript: str`, `held_at?: ISO str` | `MeetingRecord` (no transcript) | write, not idempotent |
+| `list_meetings` | `limit=10` (1–20) | `MeetingRecord[]` newest first | read-only |
+| `get_meeting` | `meeting_id: str`, `include_transcript=false` | `MeetingRecord` | read-only |
+| `get_latest_meeting` | (none) | `MeetingRecord` (no transcript) | read-only |
+| `search_meetings` | `query: str`, `limit=5`, `meeting_id?` | `SearchHit[]` (hybrid: vector + keyword) | read-only |
+| `ask_meetings` | `question: str`, `limit=5`, `meeting_id?` | `Answer` | read-only |
+| `create_jira_tasks` | `meeting_id?` (default latest), `dry_run=false` | `JiraSyncResult` | write, idempotent, open-world |
+
+**Annotations** are MCP `ToolAnnotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+`openWorldHint`). Hosts such as Claude Desktop use them to decide when to ask the user before calling a
+tool. No tool is destructive: `create_jira_tasks` never deletes or clears Jira data.
 
 ```text
 MeetingRecord { meeting_id, title, held_at (ISO), summary, action_items: ActionItem[],
