@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import re
 from datetime import date
@@ -24,11 +25,23 @@ class FakeLLM:
     def __init__(self) -> None:
         self.answer_calls: list[tuple[str, list[SearchHit]]] = []
         self.insight_dates: list[date] = []
+        self.events: list[str] = []  # call order, to check what runs concurrently
+        self.embedded_docs: list[tuple[str, str]] = []
 
-    async def embed(self, texts: list[str], *, for_query: bool) -> list[list[float]]:
-        return [bag_of_words_vector(t) for t in texts]
+    async def embed_documents(self, docs: list[tuple[str, str]]) -> list[list[float]]:
+        self.events.append("embed:start")
+        await asyncio.sleep(0)  # yield, so a concurrent extraction can start
+        self.embedded_docs.extend(docs)
+        self.events.append("embed:end")
+        return [bag_of_words_vector(text) for _, text in docs]
+
+    async def embed_query(self, query: str) -> list[float]:
+        return bag_of_words_vector(query)
 
     async def extract_insights(self, transcript: str, meeting_date: date) -> MeetingInsights:
+        self.events.append("extract:start")
+        await asyncio.sleep(0)
+        self.events.append("extract:end")
         self.insight_dates.append(meeting_date)
         return MeetingInsights(
             summary=f"Summary of: {transcript[:30]}",

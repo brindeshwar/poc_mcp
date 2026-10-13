@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -12,7 +13,7 @@ from meeting_hub.models import (
     MeetingRecord,
     SearchHit,
 )
-from meeting_hub.store import MeetingStore
+from meeting_hub.store import MeetingStore, SearchMode
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,17 @@ class MeetingService:
     """Business logic behind the MCP tools. Has no MCP-specific code so it is easy to test."""
 
     def __init__(
-        self, store: MeetingStore, llm: LLM, jira: JiraServiceClient | None = None
+        self,
+        store: MeetingStore,
+        llm: LLM,
+        jira: JiraServiceClient | None = None,
+        *,
+        search_mode: SearchMode = "hybrid",
     ) -> None:
         self._store = store
         self._llm = llm
         self._jira = jira
+        self._search_mode = search_mode
 
     async def ingest(
         self,
@@ -55,9 +62,11 @@ class MeetingService:
             held_at = held_at.replace(tzinfo=UTC)
         meeting_id = meeting_id or uuid.uuid4().hex
 
-        text_chunks = chunk_transcript(transcript)
-        insights = await self._llm.extract_insights(transcript, held_at.date())
-        vectors = await self._llm.embed([c.text for c in text_chunks], for_query=False)
+        # Extraction and embedding are independent model calls; run them concurrently.
+        insights, chunks = await asyncio.gather(
+            self._llm.extract_insights(transcript, held_at.date()),
+            self._embed_chunks(meeting_id, title, transcript),
+        )
 
         meeting = MeetingRecord(
             meeting_id=meeting_id,
@@ -68,9 +77,34 @@ class MeetingService:
             action_items=insights.action_items,
             user_stories=insights.user_stories,
         )
-        chunks = [
+        await self._store.save_meeting(meeting, chunks)
+        logger.info("Ingested meeting %s (%r) with %d chunks", meeting_id, title, len(chunks))
+        return meeting
+
+    async def reembed(self, meeting_id: str | None = None) -> int:
+        """Rebuild chunks and embeddings from stored transcripts (e.g. after changing the
+        embedding model) without re-running insight extraction. Returns meetings processed."""
+        meetings = (
+            [await self.get_meeting(meeting_id, include_transcript=True)]
+            if meeting_id
+            else await self._store.list_meetings(None)
+        )
+        for meeting in meetings:
+            if not meeting.transcript:
+                logger.warning("Skipping %s: no stored transcript", meeting.meeting_id)
+                continue
+            chunks = await self._embed_chunks(meeting.meeting_id, meeting.title, meeting.transcript)
+            await self._store.save_meeting(meeting, chunks)
+            logger.info("Re-embedded %s (%d chunks)", meeting.meeting_id, len(chunks))
+        return len(meetings)
+
+    async def _embed_chunks(self, meeting_id: str, title: str, transcript: str) -> list[Chunk]:
+        text_chunks = chunk_transcript(transcript)
+        vectors = await self._llm.embed_documents([(title, c.text) for c in text_chunks])
+        return [
             Chunk(
                 meeting_id=meeting_id,
+                meeting_title=title,
                 chunk_index=i,
                 text=c.text,
                 speakers=c.speakers,
@@ -78,9 +112,6 @@ class MeetingService:
             )
             for i, (c, vector) in enumerate(zip(text_chunks, vectors, strict=True))
         ]
-        await self._store.save_meeting(meeting, chunks)
-        logger.info("Ingested meeting %s (%r) with %d chunks", meeting_id, title, len(chunks))
-        return meeting
 
     async def list_meetings(self, limit: int = 10) -> list[MeetingRecord]:
         meetings = await self._store.list_meetings(_clamp(limit))
@@ -104,19 +135,16 @@ class MeetingService:
         query = query.strip()
         if not query:
             raise ValueError("Search query cannot be empty.")
-        [vector] = await self._llm.embed([query], for_query=True)
-        matches = await self._store.vector_search(vector, _clamp(limit), meeting_id)
-
-        titles: dict[str, str] = {}
+        vector = await self._llm.embed_query(query)
+        matches = await self._store.search(
+            query, vector, _clamp(limit), meeting_id, mode=self._search_mode
+        )
         hits = []
         for chunk, score in matches:
-            if chunk.meeting_id not in titles:
-                meeting = await self._store.get_meeting(chunk.meeting_id)
-                titles[chunk.meeting_id] = meeting.title if meeting else "Unknown meeting"
             hits.append(
                 SearchHit(
                     meeting_id=chunk.meeting_id,
-                    meeting_title=titles[chunk.meeting_id],
+                    meeting_title=chunk.meeting_title or "Unknown meeting",
                     chunk_index=chunk.chunk_index,
                     text=chunk.text,
                     speakers=chunk.speakers,
