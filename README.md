@@ -6,7 +6,8 @@
 
 An [MCP](https://modelcontextprotocol.io) server that is the hub for three connected projects. It
 stores meeting transcripts, generates a summary, action items and user stories for each one, answers
-questions with semantic search (RAG), and hands action items to Jira.
+questions with hybrid semantic + keyword search (RAG), and hands action items to Jira. It runs on
+`gemini-3.5-flash-lite` and `gemini-embedding-2`.
 
 ```
            ┌──────────────── Meeting hub (this repo, MCP over HTTP) ────────────────┐
@@ -29,7 +30,7 @@ Because it is plain MCP, you can also plug it into Claude Desktop, Claude Code o
 |---|---|
 | `ingest_meeting(title, transcript, held_at?)` | Chunks and embeds the transcript; extracts summary, action items (owner, due date resolved against the meeting date) and user stories |
 | `list_meetings(limit)` / `get_meeting(id)` / `get_latest_meeting()` | Browse stored meetings |
-| `search_meetings(query, limit, meeting_id?)` | Vector search, returns excerpts with scores |
+| `search_meetings(query, limit, meeting_id?)` | Hybrid search (vector + full-text, rank-fused), returns excerpts with scores |
 | `ask_meetings(question, limit, meeting_id?)` | RAG answer with cited sources |
 | `create_jira_tasks(meeting_id?, dry_run?)` | Sends a meeting's action items to the Jira service; safe to re-run |
 
@@ -51,8 +52,10 @@ uv run streamlit run streamlit_app.py     # web UI
 **No Atlas account?** Set `STORE_BACKEND=memory` to keep everything in-process. Data is lost on
 restart, but the whole stack works.
 
-**Atlas setup (once):** create the vector index with `uv run python scripts/create_vector_index.py`,
-then wait until Atlas shows it as READY. It indexes `embedding` (768-dim, cosine) and `meeting_id`
+**Atlas setup (once):** create the vector and full-text indexes with
+`uv run python scripts/create_search_indexes.py`, then wait until Atlas shows both as READY.
+Upgrading from v0.2 (`gemini-embedding-001`)? Also run `uv run python scripts/reembed_meetings.py`,
+which rebuilds embeddings from stored transcripts. The vector index covers `embedding` (768-dim, cosine) and `meeting_id`
 as a filter.
 
 **Inspect with the MCP Inspector:** `npx @modelcontextprotocol/inspector`, then connect to
@@ -90,7 +93,7 @@ src/meeting_hub/
   client.py      small MCP client used by Streamlit and the seed script
   models.py, config.py
 streamlit_app.py
-scripts/         seed_meetings.py, create_vector_index.py
+scripts/         seed_meetings.py, create_search_indexes.py, reembed_meetings.py
 ```
 
 ## Docker

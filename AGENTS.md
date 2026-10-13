@@ -7,7 +7,8 @@ for humans. This file is the source of truth for how to work in this repo. Tool-
 ## 1. What this repo is
 
 The **hub** of a three-repo system. It is an MCP server that stores meeting transcripts, extracts
-summaries, action items and user stories with Gemini, answers questions with vector search, and
+summaries, action items and user stories with Gemini, answers questions with hybrid (vector +
+keyword) search, and
 sends action items to Jira.
 
 ```
@@ -55,7 +56,7 @@ src/meeting_hub/
   server.py       MCP tool definitions only (thin). create_server(service), build_service(settings), main()
                   (host/port are passed to `run()`, not the constructor, in mcp 2.x)
   service.py      MeetingService: all business logic. Must NOT import mcp.
-  store.py        MeetingStore protocol + MongoStore (Atlas Vector Search) + InMemoryStore
+  store.py        MeetingStore protocol + MongoStore ($rankFusion hybrid search) + InMemoryStore (same fusion)
   llm.py          LLM protocol + GeminiLLM (embeddings, structured extraction, answers)
   chunking.py     transcript → utterances → ~800-char chunks (pure functions)
   jira_client.py  JiraServiceClient (httpx) → poc_jira POST /tasks
@@ -63,7 +64,7 @@ src/meeting_hub/
   models.py       Pydantic models. ActionItem / JiraSyncResult are part of the cross-repo contract
   config.py       Settings (pydantic-settings). The ONLY place env vars are read
 streamlit_app.py  UI; talks to the server through MCP only
-scripts/          seed_meetings.py, create_vector_index.py
+scripts/          seed_meetings.py, create_search_indexes.py, reembed_meetings.py
 tests/            conftest.py (FakeLLM, fixtures), unit + in-memory MCP end-to-end tests
 deploy/           docker-compose.yml for the whole three-repo stack
 ```
@@ -89,8 +90,15 @@ deploy/           docker-compose.yml for the whole three-repo stack
 - Adding a new tool or optional parameter is not breaking; still document it in `INTEGRATION.md`.
 
 **Data**
-- Embedding model and dimensions (`gemini-embedding-001`, 768) must match the Atlas index. Changing
-  either means recreating the index and re-ingesting. Record it in the decision log.
+- Embedding model and dimensions (`gemini-embedding-2`, 768) must match the Atlas index. Changing the
+  model means running `scripts/reembed_meetings.py` (vector spaces are incompatible across models);
+  changing dimensions also means recreating the vector index. Record it in the decision log.
+- `gemini-embedding-2` takes **no `task_type`**. Use the `document_text` / `query_text` prefixes in
+  `llm.py`.
+- Model defaults live in `config.py` (`gemini-3.5-flash-lite`; thinking `low` for extraction,
+  `minimal` for answers). Never hardcode model IDs elsewhere.
+- Keep search efficient: chunks carry `meeting_title`, so search must not query meetings per hit (a
+  test enforces it).
 
 **Tests**
 - No network in tests: no real Gemini, MongoDB, Jira or HTTP. Use `FakeLLM`, `InMemoryStore`, and

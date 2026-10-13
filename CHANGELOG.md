@@ -6,7 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-13
+
+### Added
+- **Hybrid search:** `search_meetings` / `ask_meetings` fuse Atlas Vector Search and Atlas Search
+  (full-text, fuzzy) with `$rankFusion`, so names, acronyms and ticket keys are found reliably.
+  `SEARCH_MODE=vector` keeps semantic-only search.
+- MCP tool annotations (`readOnlyHint`, `idempotentHint`, `openWorldHint`) so hosts can confirm writes.
+- `scripts/reembed_meetings.py` and `MeetingService.reembed()` rebuild embeddings from stored
+  transcripts without re-running extraction.
+
 ### Changed
+- **BREAKING (data):** embeddings now use `gemini-embedding-2`, whose vectors are incompatible with
+  `gemini-embedding-001`. Run `scripts/create_search_indexes.py` (replaces `create_vector_index.py`; adds
+  the text index) and `scripts/reembed_meetings.py`. Tool contract unchanged.
+- Default model is `gemini-3.5-flash-lite` with per-task thinking (`GEMINI_THINKING_EXTRACT=low`,
+  `GEMINI_THINKING_ANSWER=minimal`). The 2.5 models are closed to new projects.
+- **Faster ingest:** extraction and embedding run concurrently, and embedding batches run up to
+  4-way in parallel.
+- **Faster search:** chunks store `meeting_title`, so results need no per-hit meeting lookup.
+- Hybrid-mode scores are rank-fusion scores, not cosine similarities.
+- Python 3.14 added to CI; the Docker image uses Python 3.14.
 - Upgraded to `mcp` 2.x: `FastMCP` → `MCPServer`, host and port are passed to `run()`, and
   `meeting_hub.client` uses the high-level `mcp.Client`. Tool names, arguments and results are
   unchanged (no contract change).
@@ -53,6 +73,7 @@ Full rewrite. The hub is now the integration point for the Slack bot and the Jir
 
 - Initial internship proof of concept.
 
-[Unreleased]: https://github.com/brindeshwar/poc_mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/brindeshwar/poc_mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/brindeshwar/poc_mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/brindeshwar/poc_mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/brindeshwar/poc_mcp/releases/tag/v0.1.0
