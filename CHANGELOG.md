@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Upgraded to `mcp` 2.x: `FastMCP` → `MCPServer`, host and port are passed to `run()`, and
+  `meeting_hub.client` uses the high-level `mcp.Client`. Tool names, arguments and results are
+  unchanged (no contract change).
+- Upgraded `google-genai` to 2.x (its breaking changes only affect the Interactions API, which isn't used).
+- CI actions moved to their Node 24 versions (`checkout@v7`, `setup-uv@v7`, `setup-buildx-action@v4`,
+  `build-push-action@v7`, `gitleaks-action@v3`). Node 20 was removed from GitHub-hosted runners.
+
 ## [0.2.0] - 2026-10-13
 
 Full rewrite. The hub is now the integration point for the Slack bot and the Jira Task Service.

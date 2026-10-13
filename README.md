@@ -81,7 +81,7 @@ uv run ruff check .
 
 ```
 src/meeting_hub/
-  server.py      FastMCP server and tool definitions; `main()` entry point
+  server.py      MCPServer (mcp 2.x) and tool definitions; `main()` entry point
   service.py     ingest / search / ask / Jira hand-off
   store.py       MongoDB Atlas + in-memory stores
   llm.py         Gemini embeddings, structured extraction, answers

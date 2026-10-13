@@ -53,6 +53,7 @@ must all pass.
 ```
 src/meeting_hub/
   server.py       MCP tool definitions only (thin). create_server(service), build_service(settings), main()
+                  (host/port are passed to `run()`, not the constructor, in mcp 2.x)
   service.py      MeetingService: all business logic. Must NOT import mcp.
   store.py        MeetingStore protocol + MongoStore (Atlas Vector Search) + InMemoryStore
   llm.py          LLM protocol + GeminiLLM (embeddings, structured extraction, answers)
@@ -95,7 +96,8 @@ deploy/           docker-compose.yml for the whole three-repo stack
 - No network in tests: no real Gemini, MongoDB, Jira or HTTP. Use `FakeLLM`, `InMemoryStore`, and
   `httpx.MockTransport`.
 - Every bug fix comes with a test that fails without the fix.
-- MCP-level behaviour is tested via `mcp.shared.memory.create_connected_server_and_client_session`.
+- MCP-level behaviour is tested with `async with mcp.Client(create_server(service)) as client:`
+  (mcp 2.x connects to an `MCPServer` instance in-process).
 
 **Security**
 - Never commit `.env`, tokens, keys, or connection strings. `.env.example` holds names only.
@@ -136,7 +138,7 @@ Several different agents and people work on these repos. To keep context from ge
 
 - **Windows:** never create a top-level folder named `MCP`/`Mcp`. The filesystem is case-insensitive,
   so tools like ruff then treat the `mcp` package as first-party (v1 had exactly this).
-- `FastMCP` turns on DNS-rebinding protection when bound to `127.0.0.1`. In Docker it binds
+- `MCPServer` (mcp 2.x; formerly `FastMCP`) turns on DNS-rebinding protection when bound to `127.0.0.1`. In Docker it binds
   `0.0.0.0` (`MCP_HOST`) so other containers can reach `http://hub:8001/mcp`.
-- FastMCP wraps non-object return values as `{"result": ...}`. `client.unwrap_result` handles it.
+- `MCPServer` wraps non-object return values as `{"result": ...}`. `client.unwrap_result` handles it.
 - MongoDB returns tz-aware datetimes only because the client uses `tz_aware=True`. Keep it.

@@ -10,7 +10,7 @@ Service. See `INTEGRATION.md` for the exact contracts.
 
 ```
             ┌──────────────────────────────── server.py ───────────────────────────────┐
- MCP ──────►│ FastMCP tools: validate/parse input → call service → map errors to ToolError│
+ MCP ──────►│ MCPServer tools: validate/parse input → call service → map errors to ToolError│
             └─────────────────────────────────────┬─────────────────────────────────────┘
                                                   ▼
             ┌──────────────────────────────── service.py ──────────────────────────────┐
