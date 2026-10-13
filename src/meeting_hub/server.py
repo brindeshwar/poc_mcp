@@ -1,8 +1,8 @@
 import logging
 from datetime import datetime
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from meeting_hub.config import Settings, get_settings
 from meeting_hub.jira_client import JiraServiceClient, JiraServiceError
@@ -22,8 +22,8 @@ the user explicitly asks to create Jira tickets."""
 _EXPECTED_ERRORS = (ValueError, MeetingNotFoundError, LLMError, JiraServiceError, RuntimeError)
 
 
-def create_server(service: MeetingService, *, host: str = "127.0.0.1", port: int = 8001) -> FastMCP:
-    mcp = FastMCP("ListenLoom Meeting Hub", instructions=INSTRUCTIONS, host=host, port=port)
+def create_server(service: MeetingService) -> MCPServer:
+    mcp = MCPServer("ListenLoom Meeting Hub", instructions=INSTRUCTIONS)
 
     @mcp.tool()
     async def ingest_meeting(
@@ -134,14 +134,14 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     settings = get_settings()
-    server = create_server(build_service(settings), host=settings.mcp_host, port=settings.mcp_port)
+    server = create_server(build_service(settings))
     logger.info(
         "Starting MCP server on http://%s:%d/mcp (store=%s)",
         settings.mcp_host,
         settings.mcp_port,
         settings.store_backend,
     )
-    server.run(transport="streamable-http")
+    server.run(transport="streamable-http", host=settings.mcp_host, port=settings.mcp_port)
 
 
 if __name__ == "__main__":
