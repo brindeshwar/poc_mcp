@@ -1,6 +1,6 @@
-"""End-to-end tests through a real MCP client session (in-memory transport)."""
+"""End-to-end tests through a real MCP client connected to the server in-process."""
 
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp import Client
 
 from meeting_hub.client import unwrap_result
 from meeting_hub.server import create_server
@@ -20,7 +20,7 @@ EXPECTED_TOOLS = {
 
 async def test_tools_are_listed_with_descriptions(service):
     server = create_server(service)
-    async with create_connected_server_and_client_session(server._mcp_server) as client:
+    async with Client(server) as client:
         tools = (await client.list_tools()).tools
     assert {t.name for t in tools} == EXPECTED_TOOLS
     assert all(t.description for t in tools)
@@ -28,12 +28,12 @@ async def test_tools_are_listed_with_descriptions(service):
 
 async def test_ingest_then_ask_over_mcp(service):
     server = create_server(service)
-    async with create_connected_server_and_client_session(server._mcp_server) as client:
+    async with Client(server) as client:
         ingested = await client.call_tool(
             "ingest_meeting",
             {"title": "Eng sync", "transcript": TRANSCRIPT, "held_at": "2025-07-02"},
         )
-        assert not ingested.isError
+        assert not ingested.is_error
         meeting = unwrap_result(ingested)
         assert meeting["transcript"] is None
 
@@ -46,10 +46,10 @@ async def test_ingest_then_ask_over_mcp(service):
 
 async def test_errors_come_back_as_readable_tool_errors(service):
     server = create_server(service)
-    async with create_connected_server_and_client_session(server._mcp_server) as client:
+    async with Client(server) as client:
         latest = await client.call_tool("get_latest_meeting", {})
         bad_date = await client.call_tool(
             "ingest_meeting", {"title": "x", "transcript": "y", "held_at": "yesterday"}
         )
-    assert latest.isError and "No meetings" in latest.content[0].text
-    assert bad_date.isError and "Invalid isoformat" in bad_date.content[0].text
+    assert latest.is_error and "No meetings" in latest.content[0].text
+    assert bad_date.is_error and "Invalid isoformat" in bad_date.content[0].text
