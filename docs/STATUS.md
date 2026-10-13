@@ -7,7 +7,7 @@
 
 | Check | State | As of |
 |---|---|---|
-| Unit + MCP end-to-end tests | ✅ 24 passing | 2026-10-13 |
+| Unit + MCP end-to-end tests | ✅ 32 passing (incl. hybrid search, concurrency, no-N+1, re-embed, annotations) | 2026-10-13 |
 | Lint / format (ruff) | ✅ clean | 2026-10-13 |
 | MCP server over HTTP (memory store) | ✅ verified live | 2026-10-13 |
 | Slack bot ↔ hub MCP connection | ✅ verified live | 2026-10-13 |
@@ -23,7 +23,8 @@
 
 1. **Gemini key invalid.** Get a new key from Google AI Studio and put it in `.env`.
 2. **Atlas data is from v1** (old `embedding-001` vectors, different collections). Run
-   `scripts/create_vector_index.py`, wait for READY, then `scripts/seed_meetings.py`. Old collections
+   `scripts/create_search_indexes.py`, wait for both indexes to be READY, then `scripts/seed_meetings.py`
+   (or `scripts/reembed_meetings.py` for meetings already stored by v0.2). Old collections
    can be dropped manually.
 
 ## Backlog (prioritized)
@@ -46,12 +47,33 @@
 | 2026-10-13 | `google-genai` SDK directly, no LangChain | fewer layers; native structured output and function calling | LangChain (v1) |
 | 2026-10-13 | pymongo async API instead of motor + beanie | motor is deprecated; beanie added little | keep motor/beanie |
 | 2026-10-13 | Generate insights once at ingest and store them | slash commands are instant and match what goes to Jira | generate on every request |
-| 2026-10-13 | `gemini-embedding-001` at 768 dims | keeps v1's index dimension; `embedding-001` is retired | 3072 dims (bigger index, little gain here) |
+| 2026-10-13 | `gemini-embedding-001` at 768 dims (superseded below) | keeps v1's index dimension; `embedding-001` is retired | 3072 dims (bigger index, little gain here) |
+| 2026-10-13 | v0.3: `gemini-3.5-flash-lite` for all generation; thinking `low` (extract) / `minimal` (answer) | 2.5 models closed to new projects; Flash-Lite is the fast, cheap stable tier and our tasks are grounded/structured | 3.8 Flash (≈5× the price, little gain for extraction) |
+| 2026-10-13 | v0.3: `gemini-embedding-2` at 768 dims, task as text prefix | successor to 001 (shutdown 2028); same index size; auto-normalized | 3072 dims |
+| 2026-10-13 | v0.3: hybrid search via `$rankFusion` (GA) | embeddings miss IDs, names and acronyms; RRF needs no score tuning | `$scoreFusion` (needs weight tuning), vector-only |
+| 2026-10-13 | v0.3: denormalize `meeting_title` into chunks | removes N+1 lookups per search; it also gives the embedding its `title:` context | `$lookup` per query |
 | 2026-10-13 | No silent fallbacks; errors become MCP tool errors | v1's keyword fallback hid broken config | |
 | 2026-10-13 | `InMemoryStore` as a real backend (`STORE_BACKEND=memory`) | demo without Atlas; reference implementation for tests | test-only fake |
 | 2026-10-13 | Protect `main`: PR + 5 required checks, linear history, rebase-only merges, 0 approvals | keeps `main` always green; linear history keeps the Conventional Commits readable; solo maintainer can't self-approve | squash merges (loses commit granularity); required approvals (blocks a solo maintainer) |
 
 ## Handoff log
+
+### 2026-10-13: Claude (Opus 5.5) · v0.3.0 modernisation
+**Changed:** models → `gemini-3.5-flash-lite` (per-task thinking levels) and `gemini-embedding-2`
+(task prefixes; no `task_type`). Hybrid search (`$rankFusion` of vector + Atlas Search, mirrored in
+`InMemoryStore` with Lucene English stopwords). Ingest runs extraction and embedding concurrently
+(embedding batches 4-way parallel). `meeting_title` is denormalized into chunks (no N+1 per search).
+`reembed` service method + script. MCP tool annotations. `create_search_indexes.py` replaces
+`create_vector_index.py`. Python 3.14 in CI/Docker.
+
+**Verified:** 32 tests, including a pair showing vector-only search *misses* an exact ticket key that
+hybrid search surfaces; ruff; live HTTP: annotations visible to an `mcp.Client`.
+
+**Not verified:** Atlas `$rankFusion` and the text index against a real cluster, and real Gemini 3.5 /
+Embedding 2 calls (no valid key).
+
+**Next agent:** with a key and Atlas: `create_search_indexes.py` → `seed_meetings.py` → `ask_meetings`
+→ compare `SEARCH_MODE=hybrid` vs `vector` on a name/ID query.
 
 ### 2026-10-13: Claude (Opus 5.5) · dependency upgrades (Dependabot triage)
 **Changed:** migrated to `mcp` 2.3 (`MCPServer`, `mcp.Client`, in-process `Client(server)` tests) and `google-genai` 2.x. CI actions moved to their Node 24 majors.
