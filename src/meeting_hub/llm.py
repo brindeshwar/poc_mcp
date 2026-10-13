@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from datetime import date, timedelta
-from typing import Protocol
+from typing import Literal, Protocol
 
 from google import genai
 from google.genai import types
@@ -10,6 +11,9 @@ from meeting_hub.models import MeetingInsights, SearchHit
 logger = logging.getLogger(__name__)
 
 _EMBED_BATCH = 100
+_EMBED_CONCURRENCY = 4
+
+ThinkingLevel = Literal["minimal", "low", "medium", "high"]
 
 
 class LLMError(RuntimeError):
@@ -17,11 +21,24 @@ class LLMError(RuntimeError):
 
 
 class LLM(Protocol):
-    async def embed(self, texts: list[str], *, for_query: bool) -> list[list[float]]: ...
+    async def embed_documents(self, docs: list[tuple[str, str]]) -> list[list[float]]:
+        """Embed (title, text) pairs for storage."""
+        ...
+
+    async def embed_query(self, query: str) -> list[float]: ...
 
     async def extract_insights(self, transcript: str, meeting_date: date) -> MeetingInsights: ...
 
     async def answer(self, question: str, hits: list[SearchHit]) -> str: ...
+
+
+# gemini-embedding-2 has no `task_type`; the task is expressed as a text prefix instead.
+def document_text(title: str, text: str) -> str:
+    return f"title: {title or 'none'} | text: {text}"
+
+
+def query_text(query: str) -> str:
+    return f"task: search result | query: {query}"
 
 
 INSIGHTS_PROMPT = """You turn meeting transcripts into structured notes.
@@ -46,27 +63,39 @@ class GeminiLLM:
         model: str,
         embedding_model: str,
         embedding_dimensions: int,
+        extract_thinking: ThinkingLevel = "low",
+        answer_thinking: ThinkingLevel = "minimal",
     ) -> None:
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._embedding_model = embedding_model
         self._dimensions = embedding_dimensions
+        self._extract_thinking = _thinking(extract_thinking)
+        self._answer_thinking = _thinking(answer_thinking)
+        self._embed_slots = asyncio.Semaphore(_EMBED_CONCURRENCY)
 
-    async def embed(self, texts: list[str], *, for_query: bool) -> list[list[float]]:
-        task = "RETRIEVAL_QUERY" if for_query else "RETRIEVAL_DOCUMENT"
-        vectors: list[list[float]] = []
-        try:
-            for start in range(0, len(texts), _EMBED_BATCH):
+    async def embed_documents(self, docs: list[tuple[str, str]]) -> list[list[float]]:
+        texts = [document_text(title, text) for title, text in docs]
+        batches = [texts[i : i + _EMBED_BATCH] for i in range(0, len(texts), _EMBED_BATCH)]
+        results = await asyncio.gather(*(self._embed_batch(b) for b in batches))
+        return [vector for batch in results for vector in batch]
+
+    async def embed_query(self, query: str) -> list[float]:
+        [vector] = await self._embed_batch([query_text(query)])
+        return vector
+
+    async def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        async with self._embed_slots:
+            try:
                 response = await self._client.aio.models.embed_content(
                     model=self._embedding_model,
-                    contents=texts[start : start + _EMBED_BATCH],
-                    config=types.EmbedContentConfig(
-                        task_type=task, output_dimensionality=self._dimensions
-                    ),
+                    contents=texts,
+                    # gemini-embedding-2 normalizes truncated dimensions itself.
+                    config=types.EmbedContentConfig(output_dimensionality=self._dimensions),
                 )
-                vectors.extend(list(e.values or []) for e in response.embeddings or [])
-        except Exception as exc:
-            raise LLMError(f"Embedding request failed: {exc}") from exc
+            except Exception as exc:
+                raise LLMError(f"Embedding request failed: {exc}") from exc
+        vectors = [list(e.values or []) for e in response.embeddings or []]
         if len(vectors) != len(texts):
             raise LLMError(f"Expected {len(texts)} embeddings, got {len(vectors)}")
         return vectors
@@ -87,6 +116,7 @@ class GeminiLLM:
                 config=types.GenerateContentConfig(
                     system_instruction=system,
                     temperature=0,
+                    thinking_config=self._extract_thinking,
                     response_mime_type="application/json",
                     response_json_schema=MeetingInsights.model_json_schema(),
                 ),
@@ -104,7 +134,9 @@ class GeminiLLM:
                 model=self._model,
                 contents=f"Excerpts:\n{excerpts}\n\nQuestion: {question}",
                 config=types.GenerateContentConfig(
-                    system_instruction=ANSWER_PROMPT, temperature=0.2
+                    system_instruction=ANSWER_PROMPT,
+                    temperature=0.2,
+                    thinking_config=self._answer_thinking,
                 ),
             )
         except Exception as exc:
@@ -112,3 +144,7 @@ class GeminiLLM:
         if not response.text:
             raise LLMError("The model returned an empty answer")
         return response.text.strip()
+
+
+def _thinking(level: ThinkingLevel) -> types.ThinkingConfig:
+    return types.ThinkingConfig(thinking_level=types.ThinkingLevel(level.upper()))

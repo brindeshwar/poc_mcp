@@ -151,3 +151,76 @@ def test_long_action_item_summaries_fit_jira_limit():
     item = ActionItem(summary="word " * 100)
     assert len(item.summary) == 255
     assert item.summary.endswith("…")
+
+
+# --- v0.3: hybrid search, efficiency, re-embedding -------------------------------------------
+
+# The fake embedding ignores digits and words of 3 letters or fewer, like a real embedding that
+# barely distinguishes "POC-12" from "POC-13". Hybrid search must still surface the exact match.
+TICKET = "Eve: POC-12 is blocked on the vendor.\nDavid: Ping them again."
+STATUS_HEAVY = "Frank: Status update: status of the release is green, status page updated."
+STATUS_LIGHT = "Grace: Weekly status: nothing new on the release."
+QUERY = "status of POC-12"
+
+
+async def test_ingest_extracts_and_embeds_concurrently(service, llm):
+    await service.ingest("Eng sync", MIGRATION)
+    # Both calls start before either finishes.
+    assert llm.events.index("extract:start") < llm.events.index("embed:end")
+    assert llm.events.index("embed:start") < llm.events.index("extract:end")
+
+
+async def test_chunks_are_embedded_with_their_meeting_title(service, llm):
+    await service.ingest("Eng sync", MIGRATION)
+    assert {title for title, _ in llm.embedded_docs} == {"Eng sync"}
+
+
+async def _ticket_meetings(service):
+    ticket = await service.ingest("Vendor sync", TICKET)
+    await service.ingest("Release", STATUS_HEAVY)
+    await service.ingest("Weekly", STATUS_LIGHT)
+    return ticket
+
+
+async def test_vector_search_alone_misses_exact_identifiers(llm):
+    service = MeetingService(InMemoryStore(), llm, search_mode="vector")
+    ticket = await _ticket_meetings(service)
+    hits = await service.search(QUERY, limit=2)
+    assert ticket.meeting_id not in {h.meeting_id for h in hits}
+
+
+async def test_hybrid_search_surfaces_exact_identifiers(service):
+    ticket = await _ticket_meetings(service)
+    hits = await service.search(QUERY, limit=2)
+    assert ticket.meeting_id in {h.meeting_id for h in hits}
+
+
+async def test_search_does_not_look_up_meetings_per_hit(service):
+    await service.ingest("Eng sync", MIGRATION)
+    await service.ingest("Marketing", MARKETING)
+
+    async def forbidden(_meeting_id):
+        raise AssertionError("search must not call get_meeting")
+
+    service._store.get_meeting = forbidden  # type: ignore[method-assign]
+    hits = await service.search("rollback migration", limit=5)
+    assert {h.meeting_title for h in hits} == {"Eng sync", "Marketing"}
+
+
+async def test_reembed_rebuilds_chunks_without_reextracting(service, llm):
+    meeting = await service.ingest("Eng sync", MIGRATION)
+    extractions = len(llm.insight_dates)
+    llm.embedded_docs.clear()
+
+    assert await service.reembed() == 1
+    assert len(llm.insight_dates) == extractions  # no new LLM extraction
+    assert llm.embedded_docs and llm.embedded_docs[0][0] == "Eng sync"
+    assert (await service.get_meeting(meeting.meeting_id)).summary == meeting.summary
+
+
+def test_embedding_2_prefixes():
+    from meeting_hub.llm import document_text, query_text
+
+    assert document_text("Eng sync", "Eve: hi") == "title: Eng sync | text: Eve: hi"
+    assert document_text("", "x") == "title: none | text: x"
+    assert query_text("who owns it?") == "task: search result | query: who owns it?"

@@ -53,6 +53,8 @@ class MeetingRecord(BaseModel):
 
 class Chunk(BaseModel):
     meeting_id: str
+    # Denormalized so search results need no per-hit meeting lookup.
+    meeting_title: str = ""
     chunk_index: int
     text: str
     speakers: list[str]

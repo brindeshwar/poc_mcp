@@ -3,6 +3,7 @@ from datetime import datetime
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from meeting_hub.config import Settings, get_settings
 from meeting_hub.jira_client import JiraServiceClient, JiraServiceError
@@ -18,6 +19,15 @@ and user stories, and answers questions about them. Use `ask_meetings` for quest
 for raw excerpts, `get_latest_meeting` / `list_meetings` to browse, and `create_jira_tasks` only when
 the user explicitly asks to create Jira tickets."""
 
+# Hints for MCP hosts (e.g. whether to ask the user before calling). Nothing here deletes data.
+READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+INGEST = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
+)
+JIRA_WRITE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
+
 # Errors that should reach the MCP client as a readable tool error rather than a stack trace.
 _EXPECTED_ERRORS = (ValueError, MeetingNotFoundError, LLMError, JiraServiceError, RuntimeError)
 
@@ -25,7 +35,7 @@ _EXPECTED_ERRORS = (ValueError, MeetingNotFoundError, LLMError, JiraServiceError
 def create_server(service: MeetingService) -> MCPServer:
     mcp = MCPServer("ListenLoom Meeting Hub", instructions=INSTRUCTIONS)
 
-    @mcp.tool()
+    @mcp.tool(annotations=INGEST)
     async def ingest_meeting(
         title: str, transcript: str, held_at: str | None = None
     ) -> MeetingRecord:
@@ -39,12 +49,12 @@ def create_server(service: MeetingService) -> MCPServer:
             raise ToolError(str(exc)) from exc
         return meeting.model_copy(update={"transcript": None})
 
-    @mcp.tool()
+    @mcp.tool(annotations=READ_ONLY)
     async def list_meetings(limit: int = 10) -> list[MeetingRecord]:
         """List stored meetings, newest first, with their summaries and action items."""
         return await service.list_meetings(limit)
 
-    @mcp.tool()
+    @mcp.tool(annotations=READ_ONLY)
     async def get_meeting(meeting_id: str, include_transcript: bool = False) -> MeetingRecord:
         """Get one meeting by id, optionally including the full transcript."""
         try:
@@ -52,7 +62,7 @@ def create_server(service: MeetingService) -> MCPServer:
         except _EXPECTED_ERRORS as exc:
             raise ToolError(str(exc)) from exc
 
-    @mcp.tool()
+    @mcp.tool(annotations=READ_ONLY)
     async def get_latest_meeting() -> MeetingRecord:
         """Get the most recent meeting's summary, action items and user stories."""
         try:
@@ -60,18 +70,18 @@ def create_server(service: MeetingService) -> MCPServer:
         except _EXPECTED_ERRORS as exc:
             raise ToolError(str(exc)) from exc
 
-    @mcp.tool()
+    @mcp.tool(annotations=READ_ONLY)
     async def search_meetings(
         query: str, limit: int = 5, meeting_id: str | None = None
     ) -> list[SearchHit]:
-        """Semantic search over meeting transcripts. Returns the most relevant excerpts with
-        similarity scores. Pass `meeting_id` to search within a single meeting."""
+        """Hybrid (semantic + keyword) search over meeting transcripts. Returns the most relevant
+        excerpts with relevance scores (rank-fusion scores in hybrid mode). Pass `meeting_id` to search within a single meeting."""
         try:
             return await service.search(query, limit, meeting_id)
         except _EXPECTED_ERRORS as exc:
             raise ToolError(str(exc)) from exc
 
-    @mcp.tool()
+    @mcp.tool(annotations=READ_ONLY)
     async def ask_meetings(question: str, limit: int = 5, meeting_id: str | None = None) -> Answer:
         """Answer a natural-language question from the meeting transcripts, citing the excerpts
         used."""
@@ -80,7 +90,7 @@ def create_server(service: MeetingService) -> MCPServer:
         except _EXPECTED_ERRORS as exc:
             raise ToolError(str(exc)) from exc
 
-    @mcp.tool()
+    @mcp.tool(annotations=JIRA_WRITE)
     async def create_jira_tasks(
         meeting_id: str | None = None, dry_run: bool = False
     ) -> JiraSyncResult:
@@ -107,12 +117,15 @@ def build_service(settings: Settings) -> MeetingService:
             meetings_collection=settings.meetings_collection,
             chunks_collection=settings.chunks_collection,
             vector_index_name=settings.vector_index_name,
+            text_index_name=settings.text_index_name,
         )
     llm = GeminiLLM(
         settings.google_api_key.get_secret_value(),
         model=settings.gemini_model,
         embedding_model=settings.gemini_embedding_model,
         embedding_dimensions=settings.embedding_dimensions,
+        extract_thinking=settings.gemini_thinking_extract,
+        answer_thinking=settings.gemini_thinking_answer,
     )
     jira = (
         JiraServiceClient(
@@ -126,7 +139,7 @@ def build_service(settings: Settings) -> MeetingService:
         if settings.jira_service_url
         else None
     )
-    return MeetingService(store, llm, jira)
+    return MeetingService(store, llm, jira, search_mode=settings.search_mode)
 
 
 def main() -> None:

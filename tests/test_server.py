@@ -53,3 +53,21 @@ async def test_errors_come_back_as_readable_tool_errors(service):
         )
     assert latest.is_error and "No meetings" in latest.content[0].text
     assert bad_date.is_error and "Invalid isoformat" in bad_date.content[0].text
+
+
+async def test_tools_carry_annotations(service):
+    server = create_server(service)
+    async with Client(server) as client:
+        tools = {t.name: t.annotations for t in (await client.list_tools()).tools}
+    read_only = {
+        "list_meetings",
+        "get_meeting",
+        "get_latest_meeting",
+        "search_meetings",
+        "ask_meetings",
+    }
+    assert all(tools[name].read_only_hint for name in read_only)
+    assert tools["ingest_meeting"].read_only_hint is False
+    jira = tools["create_jira_tasks"]
+    assert (jira.read_only_hint, jira.idempotent_hint, jira.open_world_hint) == (False, True, True)
+    assert not any(a.destructive_hint for a in tools.values())

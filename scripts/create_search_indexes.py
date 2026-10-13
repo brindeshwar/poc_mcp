@@ -1,6 +1,8 @@
-"""One-time setup: create the Atlas Vector Search index used by `search_meetings`.
+"""One-time setup: create the Atlas Vector Search and Atlas Search (full-text) indexes.
 
-Usage:  uv run python scripts/create_vector_index.py
+Hybrid search (SEARCH_MODE=hybrid, the default) needs both; SEARCH_MODE=vector needs only the first.
+
+Usage:  uv run python scripts/create_search_indexes.py
 """
 
 import asyncio
@@ -19,13 +21,13 @@ async def main() -> None:
         meetings_collection=settings.meetings_collection,
         chunks_collection=settings.chunks_collection,
         vector_index_name=settings.vector_index_name,
+        text_index_name=settings.text_index_name,
     )
     try:
-        await store.create_vector_index(settings.embedding_dimensions)
+        names = await store.create_search_indexes(settings.embedding_dimensions)
         print(
-            f"Requested index '{settings.vector_index_name}' on "
-            f"{settings.mongo_db}.{settings.chunks_collection}. Atlas builds it in the background; "
-            "it is usable once its status is READY in the Atlas UI."
+            f"Requested indexes {names} on {settings.mongo_db}.{settings.chunks_collection}. "
+            "Atlas builds them in the background; they are usable once their status is READY."
         )
     finally:
         await store.close()
