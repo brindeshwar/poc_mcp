@@ -24,7 +24,11 @@ This project uses API keys and tokens (Google Gemini, MongoDB Atlas, Jira, Slack
 
 ## Service-specific notes
 
-- The MCP endpoint has no authentication yet (see the backlog in `docs/STATUS.md`). By default it
-  binds to `127.0.0.1`. Don't expose it publicly without putting an authenticating proxy in front.
+- **MCP endpoint auth:** set `MCP_AUTH_TOKEN` (bearer token for our clients) and/or `SLACK_SIGNING_SECRET`
+  (Slack-signed requests from Slackbot's MCP client) before the hub is reachable from anywhere but
+  localhost. With neither set the endpoint is open, and it binds to `127.0.0.1` by default. Slack signatures
+  older than 5 minutes are rejected (replay protection), and comparisons are constant-time.
+- `_meta.slack` caller identity in requests is ordinary JSON. Trust it only on requests whose Slack
+  signature verified.
 - Calls from the hub to the Jira Task Service can be protected with a shared key
   (`JIRA_SERVICE_API_KEY` ↔ `SERVICE_API_KEY`). Set it whenever the two run on separate hosts.

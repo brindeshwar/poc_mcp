@@ -111,6 +111,28 @@ missing text index raises a clear error telling you to run `create_search_indexe
 the embedding model or dimensions, run `scripts/reembed_meetings.py`, which rebuilds chunks from
 stored transcripts without re-running extraction.
 
+## Endpoint security and Slackbot
+
+`build_app()` wraps the MCP app in `auth.HubAuthMiddleware`:
+
+```
+request ─► bearer token == MCP_AUTH_TOKEN ? ──yes──► MCP app
+            │ no
+            └► X-Slack-Signature valid for SLACK_SIGNING_SECRET (≤ 5 min old)? ──yes──► MCP app
+            │ no
+            └► 401
+```
+
+The Slack signature is checked exactly like Slack's Events API (`v0:{ts}:{raw body}`, HMAC-SHA256,
+constant-time compare). The middleware buffers the body to verify it and replays it to the MCP app. A test
+checks it against Slack's documented example.
+
+**Slackbot MCP client.** Slackbot can use the hub directly: it discovers tools over Streamable HTTP, shows
+their `title`s, sorts them into read and write by `readOnlyHint`, and renders `_meta.slack.blocks`. The
+Slack app needs the `mcp:connect` scope and an `mcp_servers` entry pointing at the hub's public HTTPS URL
+(see the Slack bot repo's `manifest.yml`). A public hostname must be listed in `MCP_ALLOWED_HOSTS`, or the
+SDK's DNS-rebinding protection answers `421`.
+
 ## Error handling
 
 | Failure | Raised as | Client sees |

@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Slackbot MCP client support:** human-readable tool titles; `get_latest_meeting` and `create_jira_tasks`
+  return native Block Kit in `_meta.slack.blocks`, with a *Preview Jira tasks → Create these tickets*
+  confirmation flow through `tool:` buttons.
+- **Endpoint authentication:** `MCP_AUTH_TOKEN` (bearer token) and/or `SLACK_SIGNING_SECRET` (Slack-signed
+  requests, as sent by Slackbot with Slack identity auth). Unauthenticated requests get `401`.
+- `MCP_ALLOWED_HOSTS` to serve the hub through a public hostname (e.g. ngrok).
+
+### Changed
+- **BREAKING (when auth is enabled):** clients must send `Authorization: Bearer <MCP_AUTH_TOKEN>`. The
+  Streamlit UI, seed script and Slack bot read `MCP_AUTH_TOKEN`. Integration contract → 0.3.
+- The server runs `build_app()` under uvicorn instead of `MCPServer.run()`, so the auth layer can wrap it.
+
 ## [0.3.0] - 2026-10-13
 
 ### Added
