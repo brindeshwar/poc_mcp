@@ -7,7 +7,7 @@
 
 | Check | State | As of |
 |---|---|---|
-| Unit + MCP end-to-end tests | ✅ 32 passing (incl. hybrid search, concurrency, no-N+1, re-embed, annotations) | 2026-10-13 |
+| Unit + MCP end-to-end tests | ✅ 46 passing (incl. hybrid search, concurrency, no-N+1, re-embed, annotations) | 2026-10-13 |
 | Lint / format (ruff) | ✅ clean | 2026-10-13 |
 | MCP server over HTTP (memory store) | ✅ verified live | 2026-10-13 |
 | Slack bot ↔ hub MCP connection | ✅ verified live | 2026-10-13 |
@@ -32,11 +32,10 @@
 | # | Item | Notes |
 |---|---|---|
 | 1 | Live end-to-end run with a valid Gemini key | ingest → ask → `create_jira_tasks` dry run |
-| 2 | Auth for the MCP endpoint | today anyone who can reach the port can call tools; add a bearer token or bind only to localhost |
-| 3 | Pagination / date filters for `list_meetings` | |
-| 4 | Speaker filter in `search_meetings` | `speakers` is already stored per chunk |
-| 5 | Delete-meeting tool | needs a confirmation pattern for agents |
-| 6 | Atlas integration test job (optional, manual) | against a throwaway cluster, behind a CI secret |
+| 2 | Pagination / date filters for `list_meetings` | |
+| 3 | Speaker filter in `search_meetings` | `speakers` is already stored per chunk |
+| 4 | Delete-meeting tool | needs a confirmation pattern for agents |
+| 5 | Atlas integration test job (optional, manual) | against a throwaway cluster, behind a CI secret |
 
 ## Decision log
 
@@ -51,12 +50,31 @@
 | 2026-10-13 | v0.3: `gemini-3.5-flash-lite` for all generation; thinking `low` (extract) / `minimal` (answer) | 2.5 models closed to new projects; Flash-Lite is the fast, cheap stable tier and our tasks are grounded/structured | 3.8 Flash (≈5× the price, little gain for extraction) |
 | 2026-10-13 | v0.3: `gemini-embedding-2` at 768 dims, task as text prefix | successor to 001 (shutdown 2028); same index size; auto-normalized | 3072 dims |
 | 2026-10-13 | v0.3: hybrid search via `$rankFusion` (GA) | embeddings miss IDs, names and acronyms; RRF needs no score tuning | `$scoreFusion` (needs weight tuning), vector-only |
+| 2026-11-05 | Endpoint auth: bearer token **or** Slack signature | our clients can't sign as Slack; Slackbot can't send our token; either alone is enough | OAuth/DCR (heavier, needs an identity provider) |
+| 2026-11-05 | Support Slackbot's MCP client with Slack identity auth and Block Kit in `_meta` | Slack now lets Slackbot call MCP servers; our hub already speaks Streamable HTTP, so Slack users get the tools with no bot code; Block Kit buttons give a dry-run → confirm flow | only our custom bot |
 | 2026-10-13 | v0.3: denormalize `meeting_title` into chunks | removes N+1 lookups per search; it also gives the embedding its `title:` context | `$lookup` per query |
 | 2026-10-13 | No silent fallbacks; errors become MCP tool errors | v1's keyword fallback hid broken config | |
 | 2026-10-13 | `InMemoryStore` as a real backend (`STORE_BACKEND=memory`) | demo without Atlas; reference implementation for tests | test-only fake |
-| 2026-10-13 | Protect `main`: PR + 5 required checks, linear history, rebase-only merges, 0 approvals | keeps `main` always green; linear history keeps the Conventional Commits readable; solo maintainer can't self-approve | squash merges (loses commit granularity); required approvals (blocks a solo maintainer) |
+| 2026-10-13 | Protect `main`: PR + required checks (5, then 6 with Python 3.14), linear history, rebase-only merges, 0 approvals | keeps `main` always green; linear history keeps the Conventional Commits readable; solo maintainer can't self-approve | squash merges (loses commit granularity); required approvals (blocks a solo maintainer) |
 
 ## Handoff log
+
+### 2026-11-05: Claude (Opus 5.5) · Slackbot MCP client support + endpoint auth
+**Changed:** `auth.HubAuthMiddleware` lets in a bearer token (`MCP_AUTH_TOKEN`) or a Slack-signed request
+(`SLACK_SIGNING_SECRET`, ≤ 5 min, constant-time) and answers `401` otherwise. `main()` now serves
+`build_app()` with uvicorn; `MCP_ALLOWED_HOSTS` admits a public hostname (ngrok). Tools got human-readable
+titles. `get_latest_meeting` and `create_jira_tasks` declare `supportsBlockKit` and return
+`_meta.slack.blocks` (Preview → Create confirmation via `tool:` buttons), with structured results unchanged.
+Our clients send the token (`meeting_hub.client.connect`), and a refused session gives a readable error.
+
+**Verified:** 46 tests (signature check against Slack's documented example, tamper/replay/wrong secret,
+body replay, full app with an ngrok Host header, titles, Block Kit meta and confirmation flow); live HTTP:
+no token → 401, wrong token → readable error, right token → tools work.
+
+**Not verified:** a real Slackbot connection (needs a public URL and the Slack app updated).
+
+**Next agent:** expose the hub (ngrok), apply the manifest's `mcp_servers` block, run Fetch Tools, and try it in
+Slackbot.
 
 ### 2026-10-13: Claude (Opus 5.5) · v0.3.0 modernisation
 **Changed:** models → `gemini-3.5-flash-lite` (per-task thinking levels) and `gemini-embedding-2`

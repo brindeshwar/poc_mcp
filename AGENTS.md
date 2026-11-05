@@ -81,6 +81,11 @@ deploy/           docker-compose.yml for the whole three-repo stack
 - Read configuration only through `config.Settings`. Never call `os.getenv` elsewhere.
 - Use `logging`, never `print` (scripts excepted).
 
+**Slackbot**
+- Every tool needs a human-readable `title` and correct `readOnlyHint`; Slackbot shows and sorts tools
+  by them (a test enforces titles). Block Kit for Slackbot goes in `_meta.slack.blocks` via
+  `server._with_blocks`; a button that writes must sit behind a dry-run preview.
+
 **Contract (cross-repo)**
 - Tool names, parameters and return shapes, `ActionItem`, and the `/tasks` payload are a **public
   contract** used by `poc_slack` and `poc_jira`. Changing them is a breaking change. You must
@@ -108,6 +113,8 @@ deploy/           docker-compose.yml for the whole three-repo stack
   (mcp 2.x connects to an `MCPServer` instance in-process).
 
 **Security**
+- Endpoint auth lives in `auth.py` (bearer token or Slack signature). Never weaken it, and never trust
+  `_meta.slack` identity unless the request's Slack signature verified.
 - Never commit `.env`, tokens, keys, or connection strings. `.env.example` holds names only.
   `gitleaks` runs in pre-commit and CI.
 - Never paste secrets into docs, logs, tests or commit messages.

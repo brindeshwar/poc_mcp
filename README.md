@@ -37,6 +37,22 @@ Because it is plain MCP, you can also plug it into Claude Desktop, Claude Code o
 Errors (bad input, unknown meeting, LLM or Jira failures) come back as readable MCP tool errors. Nothing
 is silently swallowed or replaced with fallback results.
 
+## Use it from Slackbot
+
+Slack's **Slackbot MCP client** can call the hub's tools directly from Slackbot, with no bot code needed:
+
+1. Expose the hub over HTTPS, for example `ngrok http 8001`, and set `MCP_ALLOWED_HOSTS=<your-ngrok-domain>`.
+2. Set `SLACK_SIGNING_SECRET` (your Slack app's signing secret) so Slack-signed requests are accepted. Also
+   set `MCP_AUTH_TOKEN` for your own clients.
+3. In the Slack app, add the `mcp:connect` scope and an `mcp_servers` entry with `auth_type: slack_identity_auth`
+   and `url: https://<your-domain>/mcp` (the Slack bot repo's `manifest.yml` has it ready to uncomment), then
+   reinstall.
+4. In app settings → **MCP Servers** → ⋮ → **Tools → Fetch Tools**, then try *"@Slackbot what was decided in the
+   latest meeting?"*.
+
+Slackbot shows meetings as native Block Kit, with a **Preview Jira tasks → Create these tickets** button flow.
+Some Slack AI features need a paid plan; the free Slack Developer Program sandbox has them.
+
 ## Run it
 
 Requires [uv](https://docs.astral.sh/uv/) and Python 3.12+.

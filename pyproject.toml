@@ -19,6 +19,7 @@ meeting-hub = "meeting_hub.server:main"
 
 [dependency-groups]
 dev = [
+    "asgi-lifespan>=2.1.0",
     "pre-commit>=4",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",

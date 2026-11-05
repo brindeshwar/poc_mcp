@@ -26,6 +26,7 @@ services:
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8001"
       JIRA_SERVICE_URL: http://jira:8000
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     ports: ["127.0.0.1:8001:8001"]
     depends_on:
       jira:
@@ -36,6 +37,7 @@ services:
     command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
     environment:
       MCP_SERVER_URL: http://hub:8001/mcp
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     ports: ["127.0.0.1:8501:8501"]
     depends_on: [hub]
 
@@ -44,5 +46,6 @@ services:
     env_file: ../../poc_slack/.env
     environment:
       MCP_SERVER_URL: http://hub:8001/mcp
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
     depends_on: [hub]
     profiles: [slack]   # opt in: docker compose --profile slack up

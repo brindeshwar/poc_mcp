@@ -224,3 +224,37 @@ def test_embedding_2_prefixes():
     assert document_text("Eng sync", "Eve: hi") == "title: Eng sync | text: Eve: hi"
     assert document_text("", "x") == "title: none | text: x"
     assert query_text("who owns it?") == "task: search result | query: who owns it?"
+
+
+# --- Slackbot Block Kit confirmation flow -------------------------------------------------------
+
+
+def test_jira_preview_offers_a_confirm_button_and_the_real_run_does_not():
+    import json
+
+    from meeting_hub.models import JiraSyncResult, JiraTaskResult
+    from meeting_hub.slack_blocks import jira_blocks
+
+    preview = JiraSyncResult(
+        message="Dry run: 1 would create.",
+        results=[JiraTaskResult(summary="Write <the> plan", status="would_create")],
+    )
+    blocks = jira_blocks(preview, "m1", dry_run=True)
+    button = blocks[-1]["elements"][0]
+    assert (button["action_id"], json.loads(button["value"])) == (
+        "tool:create_jira_tasks",
+        {"meeting_id": "m1", "dry_run": False},
+    )
+    assert "&lt;the&gt;" in blocks[1]["text"]["text"]  # escaped for mrkdwn
+
+    created = JiraSyncResult(
+        message="1 created.",
+        results=[
+            JiraTaskResult(
+                summary="x", status="created", jira_key="POC-1", jira_url="https://j/POC-1"
+            )
+        ],
+    )
+    real = jira_blocks(created, "m1", dry_run=False)
+    assert not any(b["type"] == "actions" for b in real)
+    assert "<https://j/POC-1|POC-1>" in real[1]["text"]["text"]

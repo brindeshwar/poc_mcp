@@ -1,5 +1,7 @@
 """End-to-end tests through a real MCP client connected to the server in-process."""
 
+import json
+
 from mcp import Client
 
 from meeting_hub.client import unwrap_result
@@ -71,3 +73,27 @@ async def test_tools_carry_annotations(service):
     jira = tools["create_jira_tasks"]
     assert (jira.read_only_hint, jira.idempotent_hint, jira.open_world_hint) == (False, True, True)
     assert not any(a.destructive_hint for a in tools.values())
+
+
+async def test_tools_have_human_readable_titles(service):
+    async with Client(create_server(service)) as client:
+        tools = (await client.list_tools()).tools
+    assert all(t.title and t.title[0].isupper() for t in tools), [t.title for t in tools]
+
+
+async def test_block_kit_tools_are_declared_for_slackbot(service):
+    async with Client(create_server(service)) as client:
+        meta = {t.name: (t.meta or {}) for t in (await client.list_tools()).tools}
+    assert meta["get_latest_meeting"]["slack"]["supportsBlockKit"] is True
+    assert meta["create_jira_tasks"]["slack"]["supportsBlockKit"] is True
+
+
+async def test_latest_meeting_returns_structured_data_and_slack_blocks(service):
+    await service.ingest("Eng sync", TRANSCRIPT)
+    async with Client(create_server(service)) as client:
+        result = await client.call_tool("get_latest_meeting", {})
+    assert unwrap_result(result)["title"] == "Eng sync"  # other clients see the same data as before
+    blocks = result.meta["slack"]["blocks"]
+    button = next(b for b in blocks if b["type"] == "actions")["elements"][0]
+    assert button["action_id"] == "tool:create_jira_tasks"
+    assert json.loads(button["value"])["dry_run"] is True  # a preview first, never a write
