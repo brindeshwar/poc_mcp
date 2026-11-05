@@ -14,6 +14,7 @@ import streamlit as st
 from meeting_hub.client import HubToolError, call_tool
 
 SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8001/mcp")
+AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN") or None
 
 st.set_page_config(page_title="ListenLoom Meeting Hub", page_icon="🗣️", layout="wide")
 
@@ -21,7 +22,7 @@ st.set_page_config(page_title="ListenLoom Meeting Hub", page_icon="🗣️", lay
 def tool(name: str, **arguments: Any) -> Any:
     """Call an MCP tool; show a readable error and stop the script run if it fails."""
     try:
-        return asyncio.run(call_tool(SERVER_URL, name, arguments))
+        return asyncio.run(call_tool(SERVER_URL, name, arguments, token=AUTH_TOKEN))
     except HubToolError as exc:
         st.error(str(exc))
     except Exception as exc:  # connection refused, timeouts, ...

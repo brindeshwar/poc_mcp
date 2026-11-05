@@ -5,6 +5,7 @@ Usage:  uv run python scripts/seed_meetings.py [--url http://127.0.0.1:8001/mcp]
 
 import argparse
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 
 from meeting_hub.client import HubToolError, call_tool
@@ -32,7 +33,7 @@ Frank: I'll write up a ticket for the audit log too.
 """
 
 
-async def main(url: str) -> None:
+async def main(url: str, token: str | None) -> None:
     now = datetime.now(UTC)
     samples = [
         ("Q3 marketing strategy", MARKETING_SYNC, now - timedelta(days=3)),
@@ -43,6 +44,7 @@ async def main(url: str) -> None:
             url,
             "ingest_meeting",
             {"title": title, "transcript": transcript, "held_at": held_at.isoformat()},
+            token=token,
         )
         print(f"Ingested '{title}' -> {meeting['meeting_id']}")
         for item in meeting["action_items"]:
@@ -52,7 +54,11 @@ async def main(url: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8001/mcp")
+    parser.add_argument(
+        "--token", default=os.getenv("MCP_AUTH_TOKEN"), help="defaults to $MCP_AUTH_TOKEN"
+    )
     try:
-        asyncio.run(main(parser.parse_args().url))
+        args = parser.parse_args()
+        asyncio.run(main(args.url, args.token))
     except HubToolError as exc:
         raise SystemExit(f"Seeding failed: {exc}") from None

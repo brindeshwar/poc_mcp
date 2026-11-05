@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -34,10 +34,22 @@ class Settings(BaseSettings):
 
     mcp_host: str = "127.0.0.1"
     mcp_port: int = 8001
+    # Endpoint auth. Either is enough when set; with neither the endpoint is open (localhost only).
+    mcp_auth_token: SecretStr | None = None  # our own clients send "Authorization: Bearer ..."
+    slack_signing_secret: SecretStr | None = None  # Slackbot MCP client (Slack identity auth)
+    # Public hostnames the hub is reached through, e.g. "abc123.ngrok-free.app" (comma-separated).
+    mcp_allowed_hosts: Annotated[list[str], NoDecode] = []
 
     # The Jira task service (poc_jira). Leave unset to disable the Jira tool.
     jira_service_url: str | None = "http://127.0.0.1:8000"
     jira_service_api_key: SecretStr | None = None
+
+    @field_validator("mcp_allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [h.strip() for h in value.split(",") if h.strip()]
+        return value
 
     @model_validator(mode="after")
     def _mongo_needs_uri(self) -> "Settings":
