@@ -3,7 +3,9 @@
 This document is the **single source of truth** for how the three repos talk to each other. It lives
 in the hub because the hub sits in the middle. The other repos link here instead of copying it.
 
-Contract version: **0.2** (unchanged in hub `0.3.x`: v0.3 only adds tool annotations, which are metadata). Breaking changes bump this and must be listed in
+Contract version: **0.3**. v0.3 adds endpoint authentication (clients must send the token when the hub sets
+`MCP_AUTH_TOKEN`), tool titles and annotations, and Block Kit in `_meta`. Tool names, arguments and
+structured results are unchanged from 0.2. Breaking changes bump this and must be listed in
 every affected repo's `CHANGELOG.md`.
 
 ## Topology and defaults
@@ -24,6 +26,8 @@ every affected repo's `CHANGELOG.md`.
 | `JIRA_SERVICE_URL` | hub | Jira service base URL (e.g. `http://127.0.0.1:8000`) |
 | `JIRA_SERVICE_API_KEY` | hub | `SERVICE_API_KEY` in the Jira service (both empty = no auth) |
 | `MCP_SERVER_URL` | Slack bot, Streamlit | hub MCP endpoint, including `/mcp` |
+| `MCP_AUTH_TOKEN` | hub, Slack bot, Streamlit, seed script | the same value everywhere (empty = no token auth) |
+| `SLACK_SIGNING_SECRET` | hub (optional) | the Slack app's signing secret, to let Slackbot's MCP client in |
 
 ## Shared schema: `ActionItem`
 
@@ -73,6 +77,12 @@ Other Jira service endpoints (not used by the hub): `GET /health`,
 
 ## Clients → hub: MCP tools
 
+**Authentication.** When the hub sets `MCP_AUTH_TOKEN`, every request must carry
+`Authorization: Bearer <token>`. When it sets `SLACK_SIGNING_SECRET`, requests signed by Slack
+(`X-Slack-Signature`, `X-Slack-Request-Timestamp`, at most 5 minutes old) are accepted too; this is how
+Slackbot's MCP client connects with *Slack identity auth*. Anything else gets `401`. With neither set the
+endpoint is open, which is only acceptable on localhost.
+
 Transport: MCP Streamable HTTP at `MCP_SERVER_URL`. Structured results: object returns arrive as the
 object; list returns arrive wrapped as `{"result": [...]}`. Errors arrive as `is_error=true` (wire: `isError`)
 with a readable text message.
@@ -86,6 +96,15 @@ with a readable text message.
 | `search_meetings` | `query: str`, `limit=5`, `meeting_id?` | `SearchHit[]` (hybrid: vector + keyword) | read-only |
 | `ask_meetings` | `question: str`, `limit=5`, `meeting_id?` | `Answer` | read-only |
 | `create_jira_tasks` | `meeting_id?` (default latest), `dry_run=false` | `JiraSyncResult` | write, idempotent, open-world |
+
+Every tool also has a human-readable `title` ("Latest meeting", "Create Jira tasks", …), which
+Slackbot shows to users.
+
+**Block Kit for Slackbot.** `get_latest_meeting` and `create_jira_tasks` declare
+`_meta.slack.supportsBlockKit` and return native Slack blocks in the result's `_meta.slack.blocks`,
+alongside the unchanged structured result. Buttons use `action_id: "tool:create_jira_tasks"`, so Slackbot
+calls the tool back when they're clicked: *Latest meeting → "Preview Jira tasks" (dry run) → "Create these
+tickets"*. That is the human confirmation step before any Jira write. Other clients ignore `_meta`.
 
 **Annotations** are MCP `ToolAnnotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
 `openWorldHint`). Hosts such as Claude Desktop use them to decide when to ask the user before calling a
